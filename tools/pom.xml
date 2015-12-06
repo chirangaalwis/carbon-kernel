@@ -121,6 +121,7 @@
                                     <artifactId>tool-test-artifact</artifactId>
                                     <type>jar</type>
                                     <outputDirectory>${project.build.directory}/test-resources</outputDirectory>
+                                    <destFileName>tool-test-artifact.jar</destFileName>
                                 </artifactItem>
                                 <artifactItem>
                                     <groupId>mysql</groupId>
@@ -129,27 +130,6 @@
                                     <outputDirectory>${project.build.directory}/test-resources</outputDirectory>
                                 </artifactItem>
                             </artifactItems>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-antrun-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>rename-test-tool-artifact</id>
-                        <phase>generate-test-resources</phase>
-                        <goals>
-                            <goal>run</goal>
-                        </goals>
-
-                        <configuration>
-                            <target>
-                                <copy file="${project.build.directory}/test-resources/tool-test-artifact-${project.version}.jar"
-                                      tofile="${project.build.directory}/test-resources/tool-test-artifact.jar"/>
-                            </target>
                         </configuration>
                     </execution>
                 </executions>
