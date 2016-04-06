@@ -32,6 +32,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.jar.JarFile;
 import java.util.logging.Level;
@@ -47,8 +48,17 @@ import java.util.stream.Stream;
 public class DropinsBundleDeployer implements CarbonServerListener {
 
     private static final Logger logger = BootstrapLogger.getCarbonLogger(DropinsBundleDeployer.class.getName());
-    private static final String addOnsDirectory = "osgi";
-    private static final String dropinsDirectory = "dropins";
+    private static final String addOnsDirectory;
+    private static final String dropinsDirectory;
+    private static final Path bundleInfoDirectoryPath;
+
+    static {
+        String profileName = System.getProperty(Constants.PROFILE, Constants.DEFAULT_PROFILE);
+        addOnsDirectory = "osgi";
+        dropinsDirectory = "dropins";
+        bundleInfoDirectoryPath = Paths.get(Utils.getCarbonHomeDirectory().toString(), addOnsDirectory, profileName,
+                "configuration", "org.eclipse.equinox.simpleconfigurator");
+    }
 
     /**
      * Receives notification of a CarbonServerEvent.
@@ -58,15 +68,20 @@ public class DropinsBundleDeployer implements CarbonServerListener {
     @Override
     public void notify(CarbonServerEvent event) {
         if (event.getType() == CarbonServerEvent.STARTING) {
-            String profileName = System.getProperty(Constants.PROFILE, Constants.DEFAULT_PROFILE);
             Path dropins = Paths.get(Utils.getCarbonHomeDirectory().toString(), addOnsDirectory, dropinsDirectory);
             try {
                 if (Files.exists(dropins)) {
                     List<BundleInfo> newBundleInfoLines = getNewBundleInfoLines(dropins);
-                    Path bundleInfoDirectory = Paths
-                            .get(Utils.getCarbonHomeDirectory().toString(), addOnsDirectory, profileName,
-                                    "configuration", "org.eclipse.equinox.simpleconfigurator");
-                    Path bundleInfoFile = Paths.get(bundleInfoDirectory.toString(), "bundles.info");
+                    /*if (executeDropinsCapability(newBundleInfoLines)) {
+                        Path bundleInfoFile = Paths.get(bundleInfoDirectoryPath.toString(), "bundles.info");
+                        Map<String, List<BundleInfo>> bundleInfoLineMap = processBundleInfoFile(bundleInfoFile,
+                                newBundleInfoLines);
+                        addNewBundleInfoLines(newBundleInfoLines, bundleInfoLineMap);
+                        updateBundlesInfoFile(bundleInfoFile, bundleInfoLineMap);
+                    } else {
+                        logger.log(Level.INFO, "Skipped the processing of bundles.info file");
+                    }*/
+                    Path bundleInfoFile = Paths.get(bundleInfoDirectoryPath.toString(), "bundles.info");
                     Map<String, List<BundleInfo>> bundleInfoLineMap = processBundleInfoFile(bundleInfoFile,
                             newBundleInfoLines);
                     addNewBundleInfoLines(newBundleInfoLines, bundleInfoLineMap);
@@ -74,8 +89,7 @@ public class DropinsBundleDeployer implements CarbonServerListener {
                 }
             } catch (Exception e) {
                 logger.log(Level.SEVERE,
-                        "An error has occurred when updating the bundles.info using the OSGi " + "bundle information",
-                        e);
+                        "An error has occurred when updating the bundles.info using the OSGi bundle information", e);
             }
         }
     }
@@ -91,54 +105,112 @@ public class DropinsBundleDeployer implements CarbonServerListener {
         List<BundleInfo> existingBundleInfoLines = new ArrayList<>();
         Stream<Path> children = Files.list(sourceBundleDirectory);
 
-        children.forEach(child -> {
-            Path childFileName = child.getFileName();
-            if (childFileName != null) {
-                if (childFileName.toString().endsWith(".jar")) {
-                    try (JarFile jarFile = new JarFile(child.toString())) {
-                        if ((jarFile.getManifest() == null) || (jarFile.getManifest().getMainAttributes() == null)) {
-                            logger.log(Level.WARNING, "Invalid bundle found in the " + dropinsDirectory +
-                                    " directory: " + jarFile.toString());
-                        } else {
-                            existingBundleInfoLines.add(getNewBundleInfoLine(jarFile, childFileName.toString()));
-                        }
-                    } catch (IOException e) {
-                        logger.log(Level.SEVERE, "Error getting bundles info lines", e);
-                    }
+        children.parallel().forEach(child -> {
+            try {
+                Optional<BundleInfo> newBundleInfo = getNewBundleInfoLine(child);
+                if (newBundleInfo.isPresent()) {
+                    existingBundleInfoLines.add(newBundleInfo.get());
                 }
+            } catch (IOException e) {
+                logger.log(Level.WARNING, "Error when loading OSGi bundle info from " + child.toString(), e);
             }
         });
         return existingBundleInfoLines;
     }
 
     /**
-     * Constructs a {@code BundleInfo} instance.
+     * Constructs a {@code BundleInfo} instance out of the OSGi bundle file path specified.
      *
-     * @param jarFile  a {@link JarFile} corresponding to the OSGi bundle
-     * @param fileName the name of the OSGi bundle file
+     * @param filePath path to the OSGi bundle from which the {@link BundleInfo} is to be generated
      * @return a {@link BundleInfo} instance
+     * @throws IOException if an I/O error occurs or if an invalid bundle is found
+     */
+    private static Optional<BundleInfo> getNewBundleInfoLine(Path filePath) throws IOException {
+        Path path = filePath.getFileName();
+        if (path != null) {
+            if (path.toString().endsWith(".jar")) {
+                try (JarFile jarFile = new JarFile(filePath.toString())) {
+                    if ((jarFile.getManifest() == null) || (jarFile.getManifest().getMainAttributes() == null)) {
+                        throw new IOException("Invalid bundle found in the " + dropinsDirectory + " directory: " +
+                                jarFile.toString());
+                    } else {
+                        String bundleSymbolicName = jarFile.getManifest().getMainAttributes().
+                                getValue("Bundle-SymbolicName");
+                        String bundleVersion = jarFile.getManifest().getMainAttributes().getValue("Bundle-Version");
+                        if (bundleSymbolicName == null || bundleVersion == null) {
+                            logger.log(Level.WARNING,
+                                    "Required bundle manifest headers do not exists: " + jarFile.toString());
+                        } else {
+                            //  BSN can have values like, Bundle-SymbolicName: com.example.acme;singleton:=true
+                            //  refer - http://wiki.osgi.org/wiki/Bundle-SymbolicName for more details
+                            if (bundleSymbolicName.contains(";")) {
+                                bundleSymbolicName = bundleSymbolicName.split(";")[0];
+                            }
+                        }
+                        //  Checking whether this bundle is a fragment or not.
+                        boolean isFragment = (jarFile.getManifest().getMainAttributes().getValue("Fragment-Host")
+                                != null);
+                        int defaultBundleStartLevel = 4;
+                        BundleInfo generated = new BundleInfo(bundleSymbolicName, bundleVersion,
+                                "../../" + dropinsDirectory + "/" + path.toString(), defaultBundleStartLevel,
+                                isFragment);
+                        return Optional.of(generated);
+                    }
+                }
+            } else {
+                return Optional.empty();
+            }
+        } else {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Returns whether to perform a fresh processing of the bundles.info file.
+     * <p>
+     * The logic used for this check is as follows:
+     * 1. The details of the set of bundles present in the dropins directory is stored in the file previous.info.
+     * 2. If this file does not exist, fresh processing of the bundles.info file is carried out. A new instance of
+     * the previous.info file is created and bundle information on existing dropins directory bundles are added to it.
+     * 3. If this file exists, bundle information on current dropins directory bundles are compared with the
+     * information in the previous.info file.
+     * If matching, dropins capability is not executed. Else, a fresh processing of bundles.info file is carried out.
+     * The existing previous.info file is deleted and a new file instance is created along with bundle information on
+     * current dropins directory bundles.
+     *
+     * @param newBundleInfo a list of OSGi bundle information on the latest set of dropins directory bundles
+     * @return true if to perform a fresh processing of the bundles.info file, else false
      * @throws IOException if an I/O error occurs
      */
-    private static BundleInfo getNewBundleInfoLine(JarFile jarFile, String fileName) throws IOException {
-        String bundleSymbolicName = jarFile.getManifest().getMainAttributes().
-                getValue("Bundle-SymbolicName");
-        String bundleVersion = jarFile.getManifest().getMainAttributes().
-                getValue("Bundle-Version");
-        if (bundleSymbolicName == null || bundleVersion == null) {
-            logger.log(Level.WARNING, "Required bundle manifest headers do not exists: " + jarFile.toString());
-        } else {
-            //  BSN can have values like, Bundle-SymbolicName: com.example.acme;singleton:=true
-            //  refer - http://wiki.osgi.org/wiki/Bundle-SymbolicName for more details
-            if (bundleSymbolicName.contains(";")) {
-                bundleSymbolicName = bundleSymbolicName.split(";")[0];
+    /*private static boolean executeDropinsCapability(List<BundleInfo> newBundleInfo) throws IOException {
+        Path previousBundleInfoFile = Paths.get(bundleInfoDirectoryPath.toString(), "previous.info");
+        if (Files.exists(previousBundleInfoFile)) {
+            List<String> previousBundleInfo = Files.readAllLines(previousBundleInfoFile);
+            if (newBundleInfo.size() == previousBundleInfo.size()) {
+                Stream<BundleInfo> filtered = newBundleInfo.stream().filter(info -> previousBundleInfo.stream().
+                        filter(previousInfo -> info.toString().equals(previousInfo)).count() == 0);
+                if (filtered.count() > 0) {
+                    Files.deleteIfExists(previousBundleInfoFile);
+                    List<String> bundleInfo = new ArrayList<>();
+                    Optional.ofNullable(newBundleInfo).
+                            ifPresent(data -> data.stream().map(info -> bundleInfo.add(info.toString())));
+                    Files.write(previousBundleInfoFile, bundleInfo, Charset.forName("UTF-8"));
+
+                    return true;
+                } else {
+                    return false;
+                }
+            } else {
+                return true;
             }
+        } else {
+            List<String> bundleInfo = new ArrayList<>();
+            Optional.ofNullable(newBundleInfo).
+                    ifPresent(data -> data.stream().map(info -> bundleInfo.add(info.toString())));
+            Files.write(previousBundleInfoFile, bundleInfo, Charset.forName("UTF-8"));
+            return true;
         }
-        //  Checking whether this bundle is a fragment or not.
-        boolean isFragment = (jarFile.getManifest().getMainAttributes().getValue("Fragment-Host") != null);
-        int defaultBundleStartLevel = 4;
-        return new BundleInfo(bundleSymbolicName, bundleVersion, "../../" + dropinsDirectory + "/" + fileName,
-                defaultBundleStartLevel, isFragment);
-    }
+    }*/
 
     /**
      * Returns a {@code Map} of existing OSGi bundle information by reading the bundles.info. Stale references are
