@@ -72,7 +72,7 @@ public class DropinsBundleDeployer implements CarbonServerListener {
             try {
                 if (Files.exists(dropins)) {
                     List<BundleInfo> newBundleInfoLines = getNewBundleInfoLines(dropins);
-                    /*if (executeDropinsCapability(newBundleInfoLines)) {
+                    if (executeDropinsCapability(newBundleInfoLines)) {
                         Path bundleInfoFile = Paths.get(bundleInfoDirectoryPath.toString(), "bundles.info");
                         Map<String, List<BundleInfo>> bundleInfoLineMap = processBundleInfoFile(bundleInfoFile,
                                 newBundleInfoLines);
@@ -80,12 +80,7 @@ public class DropinsBundleDeployer implements CarbonServerListener {
                         updateBundlesInfoFile(bundleInfoFile, bundleInfoLineMap);
                     } else {
                         logger.log(Level.INFO, "Skipped the processing of bundles.info file");
-                    }*/
-                    Path bundleInfoFile = Paths.get(bundleInfoDirectoryPath.toString(), "bundles.info");
-                    Map<String, List<BundleInfo>> bundleInfoLineMap = processBundleInfoFile(bundleInfoFile,
-                            newBundleInfoLines);
-                    addNewBundleInfoLines(newBundleInfoLines, bundleInfoLineMap);
-                    updateBundlesInfoFile(bundleInfoFile, bundleInfoLineMap);
+                    }
                 }
             } catch (Exception e) {
                 logger.log(Level.SEVERE,
@@ -98,7 +93,7 @@ public class DropinsBundleDeployer implements CarbonServerListener {
      * Scans through the dropins directory and constructs corresponding {@code BundleInfo} instances.
      *
      * @param sourceBundleDirectory the source directory which contains the OSGi bundles
-     * @return a {@link List} of {@link BundleInfo} instances
+     * @return a list of {@link BundleInfo} instances
      * @throws IOException if an I/O error occurs
      */
     private static List<BundleInfo> getNewBundleInfoLines(Path sourceBundleDirectory) throws IOException {
@@ -182,35 +177,46 @@ public class DropinsBundleDeployer implements CarbonServerListener {
      * @return true if to perform a fresh processing of the bundles.info file, else false
      * @throws IOException if an I/O error occurs
      */
-    /*private static boolean executeDropinsCapability(List<BundleInfo> newBundleInfo) throws IOException {
+    private static boolean executeDropinsCapability(List<BundleInfo> newBundleInfo) throws IOException {
         Path previousBundleInfoFile = Paths.get(bundleInfoDirectoryPath.toString(), "previous.info");
         if (Files.exists(previousBundleInfoFile)) {
             List<String> previousBundleInfo = Files.readAllLines(previousBundleInfoFile);
             if (newBundleInfo.size() == previousBundleInfo.size()) {
-                Stream<BundleInfo> filtered = newBundleInfo.stream().filter(info -> previousBundleInfo.stream().
-                        filter(previousInfo -> info.toString().equals(previousInfo)).count() == 0);
-                if (filtered.count() > 0) {
+                long count = (newBundleInfo.stream().filter(info -> previousBundleInfo.stream().
+                        filter(previousInfo -> info.toString().equals(previousInfo)).count() == 0)).count();
+                if (count > 0) {
                     Files.deleteIfExists(previousBundleInfoFile);
-                    List<String> bundleInfo = new ArrayList<>();
-                    Optional.ofNullable(newBundleInfo).
-                            ifPresent(data -> data.stream().map(info -> bundleInfo.add(info.toString())));
+                    List<String> bundleInfo = getBundleInfoLines(newBundleInfo);
                     Files.write(previousBundleInfoFile, bundleInfo, Charset.forName("UTF-8"));
-
                     return true;
                 } else {
                     return false;
                 }
             } else {
+                Files.deleteIfExists(previousBundleInfoFile);
+                List<String> bundleInfo = getBundleInfoLines(newBundleInfo);
+                Files.write(previousBundleInfoFile, bundleInfo, Charset.forName("UTF-8"));
                 return true;
             }
         } else {
-            List<String> bundleInfo = new ArrayList<>();
-            Optional.ofNullable(newBundleInfo).
-                    ifPresent(data -> data.stream().map(info -> bundleInfo.add(info.toString())));
+            List<String> bundleInfo = getBundleInfoLines(newBundleInfo);
             Files.write(previousBundleInfoFile, bundleInfo, Charset.forName("UTF-8"));
             return true;
         }
-    }*/
+    }
+
+    /**
+     * Returns a list of {@code String}s representing the {@code BundleInfo} instances.
+     *
+     * @param newBundleInfo the list of {@link BundleInfo} instances
+     * @return a list of {@code String}s representing the {@code BundleInfo} instances
+     */
+    private static List<String> getBundleInfoLines(List<BundleInfo> newBundleInfo) {
+        List<String> bundleInfo = new ArrayList<>();
+        Optional.ofNullable(newBundleInfo).
+                ifPresent(data -> data.stream().forEach(info -> bundleInfo.add(info.toString())));
+        return bundleInfo;
+    }
 
     /**
      * Returns a {@code Map} of existing OSGi bundle information by reading the bundles.info. Stale references are
