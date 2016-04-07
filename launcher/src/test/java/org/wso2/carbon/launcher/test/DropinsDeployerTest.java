@@ -23,9 +23,13 @@ import org.wso2.carbon.launcher.CarbonServerEvent;
 import org.wso2.carbon.launcher.extensions.DropinsBundleDeployer;
 
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
@@ -47,15 +51,15 @@ public class DropinsDeployerTest extends BaseTest {
         setupBundlesInfoFile();
     }
 
-    @Test
-    public void readBundlesInfoToEmptyFile() {
+    @Test(description = "Tests the file update functionality by writing to a newly created bundles.info file",
+            priority = 1)
+    public void testReadingBundleInfoFromEmptyFile() {
         String carbonHome = System.getProperty("carbon.home");
-        Path bundlesInfoParent = Paths
-                .get(carbonHome, "osgi", "profiles", "default", "configuration",
-                        "org.eclipse.equinox.simpleconfigurator");
+        Path bundlesInfoDirectory = Paths.get(carbonHome, "osgi", "profiles", "default", "configuration",
+                "org.eclipse.equinox.simpleconfigurator");
         boolean matching = false;
         try {
-            Path bundlesInfoFile = Paths.get(bundlesInfoParent.toString(), "bundles.info");
+            Path bundlesInfoFile = Paths.get(bundlesInfoDirectory.toString(), "bundles.info");
             if (!Files.exists(bundlesInfoFile)) {
                 Files.createFile(bundlesInfoFile);
             }
@@ -66,21 +70,46 @@ public class DropinsDeployerTest extends BaseTest {
 
             List<String> expected = getExpectedBundlesInfoList();
             matching = false;
-            List<String> actual = Files.readAllLines(Paths.get(bundlesInfoParent.toString(), "bundles.info"));
+            List<String> actual = Files.readAllLines(Paths.get(bundlesInfoDirectory.toString(), "bundles.info"));
             matching = compareBundlesInfoContent(expected, actual);
-            Files.deleteIfExists(Paths.get(bundlesInfoParent.toString(), "bundles.info"));
+//            Files.deleteIfExists(Paths.get(bundlesInfoDirectory.toString(), "bundles.info"));
         } catch (IOException e) {
-            logger.log(Level.SEVERE, "Could not read the bundles.info file.");
+            logger.log(Level.SEVERE, "Error when handling the bundles.info file");
         }
         Assert.assertTrue(matching);
     }
 
-    @Test
+    @Test(description = "Tests whether the bundles.info file is updated when no changes are made to the contents of " +
+            "dropins directory", priority = 2)
+    public void testModificationOfBundlesInfoFile() {
+        String carbonHome = System.getProperty("carbon.home");
+        Path bundlesInfoDirectory = Paths.get(carbonHome, "osgi", "profiles", "default", "configuration",
+                "org.eclipse.equinox.simpleconfigurator");
+        try {
+            Path bundlesInfoFile = Paths.get(bundlesInfoDirectory.toString(), "bundles.info");
+            if (!Files.exists(bundlesInfoFile)) {
+                Files.createFile(bundlesInfoFile);
+            }
+
+            WatchService watcher = FileSystems.getDefault().newWatchService();
+            WatchKey key = bundlesInfoDirectory.register(watcher, StandardWatchEventKinds.ENTRY_MODIFY);
+
+            CarbonServerEvent carbonServerEvent = new CarbonServerEvent(CarbonServerEvent.STARTING, null);
+            DropinsBundleDeployer deployer = new DropinsBundleDeployer();
+            deployer.notify(carbonServerEvent);
+
+            Assert.assertTrue(key.pollEvents().size() == 0);
+        } catch (IOException e) {
+            logger.log(Level.SEVERE, "Error when handling the bundles.info file");
+            Assert.fail();
+        }
+    }
+
+    @Test(priority = 3)
     public void readBundlesInfoToNonEmptyFile() {
         String carbonHome = System.getProperty("carbon.home");
-        Path bundlesInfoParent = Paths
-                .get(carbonHome, "osgi", "profiles", "default", "configuration",
-                        "org.eclipse.equinox.simpleconfigurator");
+        Path bundlesInfoParent = Paths.get(carbonHome, "osgi", "profiles", "default", "configuration",
+                "org.eclipse.equinox.simpleconfigurator");
         boolean matching = false;
         try {
             Path bundlesInfoFile = Paths.get(bundlesInfoParent.toString(), "bundles.info");
@@ -123,9 +152,8 @@ public class DropinsDeployerTest extends BaseTest {
 
     private void setupBundlesInfoFile() {
         String carbonHome = System.getProperty("carbon.home");
-        Path bundlesInfoParent = Paths
-                .get(carbonHome, "osgi", "profiles", "default", "configuration",
-                        "org.eclipse.equinox.simpleconfigurator");
+        Path bundlesInfoParent = Paths.get(carbonHome, "osgi", "profiles", "default", "configuration",
+                "org.eclipse.equinox.simpleconfigurator");
         try {
             Files.createDirectories(bundlesInfoParent);
             Path bundlesInfoFilePath = Paths.get(bundlesInfoParent.toString(), "bundles.info");
@@ -164,9 +192,8 @@ public class DropinsDeployerTest extends BaseTest {
     public void cleanUp() {
         String carbonHome = System.getProperty("carbon.home");
         List<Path> deletePaths = new ArrayList<>();
-        Path bundlesInfoParent = Paths
-                .get(carbonHome, "osgi", "profiles", "default", "configuration",
-                        "org.eclipse.equinox.simpleconfigurator");
+        Path bundlesInfoParent = Paths.get(carbonHome, "osgi", "profiles", "default", "configuration",
+                "org.eclipse.equinox.simpleconfigurator");
         deletePaths.add(bundlesInfoParent);
         deletePaths.add(Paths.get(carbonHome, "osgi", "profile", "default", "configuration"));
         deletePaths.add(Paths.get(carbonHome, "osgi", "profile", "default"));

@@ -48,14 +48,12 @@ import java.util.stream.Stream;
 public class DropinsBundleDeployer implements CarbonServerListener {
 
     private static final Logger logger = BootstrapLogger.getCarbonLogger(DropinsBundleDeployer.class.getName());
-    private static final String addOnsDirectory;
-    private static final String dropinsDirectory;
+    private static final String addOnsDirectory = "osgi";
+    private static final String dropinsDirectory = "dropins";
     private static final Path bundleInfoDirectoryPath;
 
     static {
         String profileName = System.getProperty(Constants.PROFILE, Constants.DEFAULT_PROFILE);
-        addOnsDirectory = "osgi";
-        dropinsDirectory = "dropins";
         bundleInfoDirectoryPath = Paths.get(Utils.getCarbonHomeDirectory().toString(), addOnsDirectory, profileName,
                 "configuration", "org.eclipse.equinox.simpleconfigurator");
     }
@@ -72,7 +70,7 @@ public class DropinsBundleDeployer implements CarbonServerListener {
             try {
                 if (Files.exists(dropins)) {
                     List<BundleInfo> newBundleInfoLines = getNewBundleInfoLines(dropins);
-                    if (executeDropinsCapability(newBundleInfoLines)) {
+                    if (revampBundlesInfo(newBundleInfoLines)) {
                         Path bundleInfoFile = Paths.get(bundleInfoDirectoryPath.toString(), "bundles.info");
                         Map<String, List<BundleInfo>> bundleInfoLineMap = processBundleInfoFile(bundleInfoFile,
                                 newBundleInfoLines);
@@ -165,19 +163,18 @@ public class DropinsBundleDeployer implements CarbonServerListener {
      * <p>
      * The logic used for this check is as follows:
      * 1. The details of the set of bundles present in the dropins directory is stored in the file previous.info.
-     * 2. If this file does not exist, fresh processing of the bundles.info file is carried out. A new instance of
-     * the previous.info file is created and bundle information on existing dropins directory bundles are added to it.
+     * 2. If this file does not exist, a fresh revamp of the bundles.info file is carried out. A new instance of
+     * the previous.info file is created and bundle information on new dropins directory bundles are added to it.
      * 3. If this file exists, bundle information on current dropins directory bundles are compared with the
      * information in the previous.info file.
-     * If matching, dropins capability is not executed. Else, a fresh processing of bundles.info file is carried out.
-     * The existing previous.info file is deleted and a new file instance is created along with bundle information on
-     * current dropins directory bundles.
+     * If matching, bundles.info is not revamped. Else, bundles.info file is revamped. The existing previous.info file
+     * is deleted and a new file instance is created along with bundle information on current dropins directory bundles.
      *
      * @param newBundleInfo a list of OSGi bundle information on the latest set of dropins directory bundles
      * @return true if to perform a fresh processing of the bundles.info file, else false
      * @throws IOException if an I/O error occurs
      */
-    private static boolean executeDropinsCapability(List<BundleInfo> newBundleInfo) throws IOException {
+    private static boolean revampBundlesInfo(List<BundleInfo> newBundleInfo) throws IOException {
         Path previousBundleInfoFile = Paths.get(bundleInfoDirectoryPath.toString(), "previous.info");
         if (Files.exists(previousBundleInfoFile)) {
             List<String> previousBundleInfo = Files.readAllLines(previousBundleInfoFile);
@@ -219,44 +216,37 @@ public class DropinsBundleDeployer implements CarbonServerListener {
     }
 
     /**
-     * Returns a {@code Map} of existing OSGi bundle information by reading the bundles.info. Stale references are
-     * removed.
+     * Returns existing OSGi bundle information by reading the bundles.info. Stale references are removed.
+     * <p>
+     * The mechanism used to remove stale references is as follows:
+     * Information about each OSGi bundle in the existing bundles.info file is used to check if the specified
+     * bundle still exists within the dropins directory. If it does not exist, the reference is removed.
+     * In this mechanism if two bundle information lines are to be equal, Bundle-SymbolicNames, Bundle-Versions and
+     * fragment-ness of the two bundles need to match.
      *
-     * @param bundleInfoFile     the bundles.info file to be read
-     * @param newBundleInfoLines the {@link List} of {@link BundleInfo} instances corresponding to the new OSGi
-     *                           bundles in dropins folder
-     * @return a {@link Map} of existing OSGi bundle information with stale references removed
+     * @param sourceFile         the file path to the source from which existing bundle information are to be read
+     * @param newBundleInfoLines a list of {@link BundleInfo} instances corresponding to the OSGi bundles in dropins
+     *                           folder
+     * @return existing OSGi bundle information with stale references removed
      * @throws Exception if an error occurs when reading the bundles.info file
      */
-    private static Map<String, List<BundleInfo>> processBundleInfoFile(Path bundleInfoFile,
+    private static Map<String, List<BundleInfo>> processBundleInfoFile(Path sourceFile,
             List<BundleInfo> newBundleInfoLines) throws Exception {
         Map<String, List<BundleInfo>> bundleInfoLineMap = new HashMap<>();
 
-        if (Files.exists(bundleInfoFile)) {
-            List<String> fileContent = Files.readAllLines(bundleInfoFile, Charset.forName("UTF-8"));
+        if (Files.exists(sourceFile)) {
+            List<String> fileContent = Files.readAllLines(sourceFile, Charset.forName("UTF-8"));
             for (String line : fileContent) {
                 if (!line.startsWith("#")) {
                     BundleInfo bundleInfoLine = BundleInfo.getInstance(line);
                     if (bundleInfoLine.isFromDropins()) {
-                        //  This bundle is from the dropins directory. We need to check whether this bundle
-                        //  is still there in the dropins directory. If it does not exist, we remove it. This
-                        //  is how we check whether two bundle lines are identical in this scenario.
-                        //  BundleSymbolicNames and BundleVersions should be equal, Fragment-ness should be
-                        //  equal.
-                        boolean found = false;
-                        for (BundleInfo newBundleInfoLine : newBundleInfoLines) {
-                            if (newBundleInfoLine.getBundleSymbolicName().equals(bundleInfoLine.getBundleSymbolicName())
-                                    && newBundleInfoLine.getBundleVersion().equals(bundleInfoLine.getBundleVersion())) {
-                                //  Now the symbolicName and the version is equal. Now we need to check the
-                                //  fragment-ness of these bundles.
-                                if (!(newBundleInfoLine.isFragment() ^ bundleInfoLine.isFragment())) {
-                                    // This means fragment-ness property is equal.
-                                    found = true;
-                                }
-                            }
-                        }
+                        boolean found = (newBundleInfoLines.stream().filter(newBundleInfoLine -> (
+                                newBundleInfoLine.getBundleSymbolicName().equals(bundleInfoLine.getBundleSymbolicName())
+                                        && newBundleInfoLine.getBundleVersion().
+                                        equals(bundleInfoLine.getBundleVersion()) && (!(newBundleInfoLine.isFragment()
+                                        ^ bundleInfoLine.isFragment()))))).count() == 1;
                         if (!found) {
-                            //  If this dropins bundle is no longer available in the dropins directory, we remove it.
+                            //  If this dropins bundle is no longer available in the dropins directory, we remove it
                             continue;
                         }
                     }
@@ -281,7 +271,6 @@ public class DropinsBundleDeployer implements CarbonServerListener {
      *                                  directory
      * @param existingBundleInfoLineMap the list of bundles currently available in the system
      */
-
     private static void addNewBundleInfoLines(List<BundleInfo> newBundleInfoLines,
             Map<String, List<BundleInfo>> existingBundleInfoLineMap) {
         newBundleInfoLines.forEach(newBundleInfoLine -> {
@@ -292,22 +281,20 @@ public class DropinsBundleDeployer implements CarbonServerListener {
             List<BundleInfo> bundleInfoLineList = existingBundleInfoLineMap.get(symbolicName);
 
             if (bundleInfoLineList == null) {
-                //  Bundle does not exists in the bundles.info line, hence we add it.
+                //  Bundle is added to the bundles.info file since it does not exist
                 bundleInfoLineList = new ArrayList<>();
                 bundleInfoLineList.add(newBundleInfoLine);
                 existingBundleInfoLineMap.put(symbolicName, bundleInfoLineList);
                 logger.log(Level.INFO, "Deploying bundle: " + newBundleInfoLine.getBundleSymbolicName() + "_" +
                         newBundleInfoLine.getBundleVersion() + ".jar");
             } else {
-                //  Bundle symbolic names exists. Now we need to check whether their versions are equal.
                 boolean found = false;
                 for (BundleInfo existingBundleInfoLine : bundleInfoLineList) {
-
+                    //  Bundle symbolic names exists, hence their versions are checked for equality
                     if (existingBundleInfoLine.getBundleVersion().equals(version)) {
-                        //  SymbolicName and the version match with an existing bundle.
-                        //  Now we need to compare the fragment-ness.
+                        //  Compare fragment-ness, since SymbolicName and the version are matching
                         if (existingBundleInfoLine.isFragment() ^ isFragment) {
-                            //  This means fragment-ness property is not equal.
+                            //  This means fragment-ness property is not equal
                             if (!existingBundleInfoLine.getBundlePath().equals(newBundleInfoLine.getBundlePath())) {
                                 logger.log(Level.WARNING,
                                         "Ignoring the deployment of bundle: " + newBundleInfoLine.toString() +
@@ -322,13 +309,12 @@ public class DropinsBundleDeployer implements CarbonServerListener {
                             //  Now lets check whether their locations are equal. If the locations are equal, we don't
                             //  need to add it again. But if the locations are different we should throw a WARN.
                             if (existingBundleInfoLine.getBundlePath().equals(newBundleInfoLine.getBundlePath())) {
-                                //  As we have an exact match, no need to add again.
+                                //  As we have an exact match, no need to add again
                                 logger.log(Level.FINE, "Deploying bundle: " + newBundleInfoLine.getBundlePath());
                                 found = true;
                                 break;
-
                             } else {
-                                //  We have an exact match, but their locations are different.
+                                // An exact match, but bundle locations are different
                                 logger.log(Level.WARNING,
                                         "Ignoring the deployment of bundle: " + newBundleInfoLine.toString() +
                                                 ", because it is already available in the system: " +
@@ -339,8 +325,7 @@ public class DropinsBundleDeployer implements CarbonServerListener {
                             }
                         }
                     } else {
-                        //  Version property is different. Therefore this new bundle does not exist in the system.
-                        //  Therefore 'found' is still false.
+                        //  Version property is different, therefore this new bundle does not exist in the system
                         found = false;
                     }
                 }
