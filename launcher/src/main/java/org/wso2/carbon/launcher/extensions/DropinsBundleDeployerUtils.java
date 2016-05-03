@@ -40,8 +40,8 @@ import java.util.stream.Stream;
 public class DropinsBundleDeployerUtils {
     private static final Logger logger = Logger.getLogger(DropinsBundleDeployerUtils.class.getName());
 
-    private static List<BundleInfo> newBundlesInfo;
 
+    //  TODO: update the Javadoc comments.
     /**
      * Updates the specified Carbon profile's bundles.info file based on the OSGi bundles deployed in the dropins
      * directory. The OSGi bundle information in the bundles.info file in a Carbon profile is used to install and
@@ -57,31 +57,34 @@ public class DropinsBundleDeployerUtils {
      * OSGi bundle information are merged together.
      * 4. Updates the bundles.info file with the OSGi bundle information retrieved in step 3.
      *
-     * @param carbonHome    the {@link String} representation of carbon.home
-     * @param carbonProfile the bundles.info file to be updated
+     * @param carbonHome     the {@link String} representation of carbon.home
+     * @param carbonProfile  the bundles.info file to be updated
+     * @param bundlesInfo the list of new OSGi bundle information
      * @throws IOException if an I/O error occurs
      */
-    public static synchronized void executeDropinsCapability(String carbonHome, String carbonProfile)
-            throws IOException {
-        Path dropinsDirectoryPath = Paths.get(carbonHome, Constants.OSGI_REPOSITORY, Constants.DROPINS);
-        Path bundlesInfoFile = Paths.
-                get(carbonHome, Constants.OSGI_REPOSITORY, Constants.PROFILE_PATH, carbonProfile, "configuration",
-                        "org.eclipse.equinox.simpleconfigurator", Constants.BUNDLES_INFO);
-
-        if (newBundlesInfo == null) {
-            logger.log(Level.FINE, "Loading the new OSGi bundle information from " + Constants.DROPINS + " folder...");
-            newBundlesInfo = getNewBundlesInfo(dropinsDirectoryPath);
-            logger.log(Level.FINE, "Successfully loaded the new OSGi bundle information from " + Constants.DROPINS +
-                    " folder");
-        } else {
-            logger.log(Level.FINE, "The OSGi bundle information from " + Constants.DROPINS + " folder are " +
-                    "already loaded");
+    public static synchronized void installDropins(String carbonHome, String carbonProfile,
+            List<BundleInfo> bundlesInfo) throws IOException {
+        //  validate the arguments provided
+        if ((carbonHome == null) || (carbonHome.isEmpty())) {
+            throw new IllegalArgumentException("Carbon home specified is invalid");
         }
 
-        if (hasToUpdateBundlesInfoFile(newBundlesInfo, bundlesInfoFile)) {
+        if ((carbonProfile == null) || (carbonProfile.isEmpty())) {
+            throw new IllegalArgumentException("Carbon Profile specified is invalid");
+        }
+
+        if (bundlesInfo == null) {
+            throw new IllegalArgumentException("No new OSGi bundle information specified, for updating the " +
+                    "Carbon Profile: " + carbonProfile);
+        }
+
+        Path bundlesInfoFile = Paths.get(carbonHome, Constants.OSGI_REPOSITORY, Constants.PROFILE_PATH,
+                carbonProfile, "configuration", "org.eclipse.equinox.simpleconfigurator", Constants.BUNDLES_INFO);
+
+        if (hasToUpdateBundlesInfoFile(bundlesInfo, bundlesInfoFile)) {
             logger.log(Level.FINE, "New file changes detected in " + Constants.DROPINS + " folder");
 
-            List<BundleInfo> effectiveNewBundleInfo = mergeDropinsBundleInfo(newBundlesInfo, bundlesInfoFile);
+            List<BundleInfo> effectiveNewBundleInfo = mergeDropinsBundleInfo(bundlesInfo, bundlesInfoFile);
 
             logger.log(Level.FINE, "Updating the OSGi bundle information of Carbon Profile: " + carbonProfile + "...");
             updateBundlesInfo(effectiveNewBundleInfo, bundlesInfoFile);
@@ -100,33 +103,28 @@ public class DropinsBundleDeployerUtils {
      * @return the constructed {@link BundleInfo} instances list
      * @throws IOException if an I/O error occurs or if the {@code sourceDirectory} is invalid
      */
-    public static List<BundleInfo> getNewBundlesInfo(Path sourceDirectory) throws IOException {
-        List<BundleInfo> newBundleInfoLines = new ArrayList<>();
-        if ((sourceDirectory != null) && (Files.exists(sourceDirectory))) {
-            Stream<Path> children = Files.list(sourceDirectory);
-            children
-                    .parallel()
-                    .forEach(child -> {
-                        try {
-                            logger.log(Level.FINE, "Loading OSGi bundle information from " + child + "...");
-                            getNewBundleInfo(child)
-                                    .ifPresent(bundleInfo -> {
-                                        if (!bundleInfoExists(bundleInfo, newBundleInfoLines)) {
-                                            newBundleInfoLines.add(bundleInfo);
-                                        }
-                                    });
-                            logger.log(Level.FINE, "Successfully loaded OSGi bundle information from " + child);
-                        } catch (IOException e) {
-                            logger.log(Level.WARNING, "Error when loading the OSGi bundle information from " + child,
-                                    e);
-                        }
-                    });
-        } else {
+    public static List<BundleInfo> getBundlesInfo(Path sourceDirectory) throws IOException {
+        if ((sourceDirectory == null)) {
             throw new IOException("Invalid OSGi bundle source directory. The specified path may not exist or " +
-                    "user may not have required file permissions for the specified path: " + sourceDirectory);
+                            "user may not have required file permissions for the specified path");
         }
 
-        return newBundleInfoLines;
+        Stream<Path> children = Files.list(sourceDirectory);
+
+        return children
+                .parallel()
+                .map(child -> {
+                    BundleInfo bundleInfo = null;
+                    try {
+                        bundleInfo = getBundleInfo(child).orElse(null);
+                    } catch (IOException e) {
+                        logger.log(Level.WARNING, "Error when loading the OSGi bundle information from " + child, e);
+                    }
+                    return bundleInfo;
+                })
+                .filter(bundleInfo -> bundleInfo != null)
+                .distinct()
+                .collect(Collectors.toList());
     }
 
     /**
@@ -137,47 +135,53 @@ public class DropinsBundleDeployerUtils {
      *
      * @param bundlePath path to the OSGi bundle from which the {@link BundleInfo} is to be generated
      * @return a {@link BundleInfo} instance
-     * @throws IOException if an I/O error occurs or if an invalid {@code bundlePath} is found
+     * @throws IOException if an I/O error occurs or if an invalid OSGi bundle file path is found
      */
-    private static Optional<BundleInfo> getNewBundleInfo(Path bundlePath) throws IOException {
-        if ((bundlePath != null) && (Files.exists(bundlePath))) {
-            Path bundleFileName = bundlePath.getFileName();
-            if (bundleFileName == null) {
-                throw new IOException("Specified OSGi bundle file name is null: " + bundlePath);
-            } else {
-                String fileName = bundleFileName.toString();
-                if (fileName.endsWith(".jar")) {
-                    try (JarFile jarFile = new JarFile(bundlePath.toString())) {
-                        Manifest manifest = jarFile.getManifest();
-                        if ((manifest == null) || (manifest.getMainAttributes() == null)) {
-                            throw new IOException("Invalid OSGi bundle found in the " + Constants.DROPINS + " folder");
-                        } else {
-                            String bundleSymbolicName = manifest.getMainAttributes().getValue("Bundle-SymbolicName");
-                            String bundleVersion = manifest.getMainAttributes().getValue("Bundle-Version");
-
-                            if (bundleSymbolicName == null || bundleVersion == null) {
-                                throw new IOException("Required bundle manifest headers do not exist");
-                            } else {
-                                if (bundleSymbolicName.contains(";")) {
-                                    bundleSymbolicName = bundleSymbolicName.split(";")[0];
-                                }
-                            }
-
-                            //  checks whether this bundle is a fragment or not
-                            boolean isFragment = (manifest.getMainAttributes().getValue("Fragment-Host") != null);
-                            int defaultBundleStartLevel = 4;
-                            BundleInfo generated = new BundleInfo(bundleSymbolicName, bundleVersion,
-                                    "../../" + Constants.DROPINS + "/" + fileName, defaultBundleStartLevel, isFragment);
-                            return Optional.of(generated);
-                        }
-                    }
-                } else {
-                    return Optional.empty();
-                }
-            }
-        } else {
+    private static Optional<BundleInfo> getBundleInfo(Path bundlePath) throws IOException {
+        if ((bundlePath == null)) {
             throw new IOException("Invalid OSGi bundle path. The specified path may not exist or " +
-                    "user may not have required file permissions for the specified path: " + bundlePath);
+                    "user may not have required file permissions for the specified path");
+        }
+
+        Path bundleFileName = bundlePath.getFileName();
+        if (bundleFileName == null) {
+            throw new IOException("Specified OSGi bundle file name is null: " + bundlePath);
+        }
+
+        String fileName = bundleFileName.toString();
+        if (!fileName.endsWith(".jar")) {
+            return Optional.empty();
+        }
+
+        try (JarFile jarFile = new JarFile(bundlePath.toString())) {
+            Manifest manifest = jarFile.getManifest();
+
+            if ((manifest == null) || (manifest.getMainAttributes() == null)) {
+                throw new IOException("Invalid OSGi bundle found in the " + Constants.DROPINS + " folder");
+            }
+
+            String bundleSymbolicName = manifest.getMainAttributes().getValue("Bundle-SymbolicName");
+            String bundleVersion = manifest.getMainAttributes().getValue("Bundle-Version");
+
+            if (bundleSymbolicName == null || bundleVersion == null) {
+                throw new IOException("Required bundle manifest headers do not exist");
+            }
+
+            logger.log(Level.FINE,
+                    "Loading information from OSGi bundle: " + bundleSymbolicName + ":" + bundleVersion + "...");
+
+            if (bundleSymbolicName.contains(";")) {
+                bundleSymbolicName = bundleSymbolicName.split(";")[0];
+            }
+
+            //  checks whether this bundle is a fragment or not
+            boolean isFragment = (manifest.getMainAttributes().getValue("Fragment-Host") != null);
+            int defaultBundleStartLevel = 4;
+            BundleInfo generated = new BundleInfo(bundleSymbolicName, bundleVersion,
+                    "../../" + Constants.DROPINS + "/" + fileName, defaultBundleStartLevel, isFragment);
+            logger.log(Level.FINE,
+                    "Successfully loaded information from OSGi bundle: " + bundleSymbolicName + ":" + bundleVersion);
+            return Optional.of(generated);
         }
     }
 
