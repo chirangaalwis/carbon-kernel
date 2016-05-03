@@ -79,16 +79,16 @@ public class DropinsBundleDeployerUtils {
         }
 
         if (hasToUpdateBundlesInfoFile(newBundlesInfo, bundlesInfoFile)) {
-            logger.log(Level.INFO, "New file changes detected in " + Constants.DROPINS + " folder");
+            logger.log(Level.FINE, "New file changes detected in " + Constants.DROPINS + " folder");
 
             List<BundleInfo> effectiveNewBundleInfo = mergeDropinsBundleInfo(newBundlesInfo, bundlesInfoFile);
 
-            logger.log(Level.INFO, "Updating the OSGi bundle information of Carbon Profile: " + carbonProfile + "...");
+            logger.log(Level.FINE, "Updating the OSGi bundle information of Carbon Profile: " + carbonProfile + "...");
             updateBundlesInfo(effectiveNewBundleInfo, bundlesInfoFile);
             logger.log(Level.INFO,
                     "Successfully updated the OSGi bundle information of Carbon Profile: " + carbonProfile);
         } else {
-            logger.log(Level.INFO, "No changes detected in the dropins directory in comparison with the profile, " +
+            logger.log(Level.FINE, "No changes detected in the dropins directory in comparison with the profile, " +
                     "skipped the OSGi bundle information update for Carbon Profile: " + carbonProfile);
         }
     }
