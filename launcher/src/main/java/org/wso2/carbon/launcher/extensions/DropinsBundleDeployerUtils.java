@@ -186,8 +186,10 @@ public class DropinsBundleDeployerUtils {
             //  checks whether this bundle is a fragment or not
             boolean isFragment = (manifest.getMainAttributes().getValue("Fragment-Host") != null);
             int defaultBundleStartLevel = 4;
+            /*BundleInfo generated = new BundleInfo(bundleSymbolicName, bundleVersion,
+                    "../../" + Constants.DROPINS + "/" + fileName, defaultBundleStartLevel, isFragment);*/
             BundleInfo generated = new BundleInfo(bundleSymbolicName, bundleVersion,
-                    "../../" + Constants.DROPINS + "/" + fileName, defaultBundleStartLevel, isFragment);
+                    Paths.get("..", "..", Constants.DROPINS, fileName).toString(), defaultBundleStartLevel, isFragment);
             logger.log(Level.FINE,
                     "Successfully loaded information from OSGi bundle: " + bundleSymbolicName + ":" + bundleVersion);
             return Optional.of(generated);
