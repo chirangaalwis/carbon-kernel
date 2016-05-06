@@ -118,9 +118,13 @@ public class DropinsBundleDeployerTest extends BaseTest {
             + "bundle removed", priority = 4)
     public void testRemovingExistingBundle() throws IOException {
         String equinoxLauncherVersion = System.getProperty("equinox.launcher.version");
-        BundleInfo bundleInfoRemoved = BundleInfo.getInstance(
+        /*BundleInfo bundleInfoRemoved = BundleInfo.getInstance(
                 "org.eclipse.equinox.launcher," + equinoxLauncherVersion + ",../../" + dropinsDirectory
-                        + "/org.eclipse.equinox.launcher_" + equinoxLauncherVersion + ".jar,4,true");
+                        + "/org.eclipse.equinox.launcher_" + equinoxLauncherVersion + ".jar,4,true");*/
+
+        BundleInfo bundleInfoRemoved = BundleInfo.getInstance(
+                "org.eclipse.equinox.launcher," + equinoxLauncherVersion + "," + Paths.get("..", "..", dropinsDirectory,
+                        "org.eclipse.equinox.launcher_" + equinoxLauncherVersion + ".jar").toString() + ",4,true");
 
         Path dropins = Paths.get(carbonHome, Constants.OSGI_REPOSITORY, dropinsDirectory);
         Files.deleteIfExists(
