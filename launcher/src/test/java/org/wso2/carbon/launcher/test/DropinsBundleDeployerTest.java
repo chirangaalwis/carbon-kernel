@@ -190,7 +190,7 @@ public class DropinsBundleDeployerTest extends BaseTest {
 
     private static List<BundleInfo> getExpectedBundleInfo() {
         List<BundleInfo> bundleInfo = new ArrayList<>();
-        String equinoxOSGiVersion = System.getProperty("equinox.osgi.version");
+        /*String equinoxOSGiVersion = System.getProperty("equinox.osgi.version");
         bundleInfo.add(BundleInfo.getInstance("org.eclipse.osgi," + equinoxOSGiVersion + ",../../" +
                 dropinsDirectory + "/org.eclipse.osgi_" + equinoxOSGiVersion + ".jar,4,true"));
 
@@ -206,7 +206,29 @@ public class DropinsBundleDeployerTest extends BaseTest {
         String equinoxLauncherVersion = System.getProperty("equinox.launcher.version");
         bundleInfo.add(BundleInfo.getInstance(
                 "org.eclipse.equinox.launcher," + equinoxLauncherVersion + ",../../" + dropinsDirectory
-                        + "/org.eclipse.equinox.launcher_" + equinoxLauncherVersion + ".jar,4,true"));
+                        + "/org.eclipse.equinox.launcher_" + equinoxLauncherVersion + ".jar,4,true"));*/
+
+        String equinoxOSGiVersion = System.getProperty("equinox.osgi.version");
+        String equinoxSimpleConfiguratorVersion = System.getProperty("equinox.simpleconfigurator.version");
+        String equinoxUtilVersion = System.getProperty("equinox.util.version");
+        String equinoxLauncherVersion = System.getProperty("equinox.launcher.version");
+
+
+        bundleInfo.add(BundleInfo.getInstance("org.eclipse.osgi," + equinoxOSGiVersion + "," + Paths.get("..", "..",
+                dropinsDirectory, "org.eclipse.osgi_" + equinoxOSGiVersion + ".jar").toString() + ",4,true"));
+
+        bundleInfo.add(BundleInfo.getInstance("org.eclipse.equinox.simpleconfigurator," +
+                equinoxSimpleConfiguratorVersion + "," + Paths.get("..", "..", dropinsDirectory,
+                "org.eclipse.equinox.simpleconfigurator_" + equinoxSimpleConfiguratorVersion + ".jar").toString()
+                + ",4,true"));
+
+        bundleInfo.add(BundleInfo.getInstance("org.eclipse.equinox.util," + equinoxUtilVersion + "," + Paths
+                .get("..", "..", dropinsDirectory, "org.eclipse.equinox.util_" + equinoxUtilVersion + ".jar")
+                + ",4,true"));
+
+        bundleInfo.add(BundleInfo.getInstance("org.eclipse.equinox.launcher," + equinoxLauncherVersion + "," + Paths
+                .get("..", "..", dropinsDirectory, "org.eclipse.equinox.launcher_" + equinoxLauncherVersion + ".jar")
+                .toString() + ",4,true"));
 
         return bundleInfo;
     }
